@@ -1,0 +1,126 @@
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.4
+aiomysql==0.3.2
+aiosignal==1.4.0
+altair==6.3.0
+amqp==5.4.1
+annotated-doc @ file:///Users/ec2-user/croot/annotated-doc_1786359529512/work
+annotated-types @ file:///Users/ec2-user/croot/annotated-types_1783680858953/work
+anyio @ file:///Users/ec2-user/croot/anyio_1790075275952/work
+argon2-cffi==25.1.0
+argon2-cffi-bindings==26.1.0
+attrs==26.1.0
+azure-core==1.41.0
+azure-storage-blob==12.31.0
+billiard==4.3.1
+cachetools==7.2.1
+celery==5.6.3
+certifi @ file:///Users/ec2-user/croot/certifi_1785412579097/work/certifi
+cffi==2.1.1
+charset-normalizer==3.5.2
+click @ file:///Users/ec2-user/croot/click_1788515402781/work
+click-didyoumean==0.3.1
+click-plugins==1.1.1.2
+click-repl==0.4.1
+cryptography==50.0.2
+dashscope==1.27.7
+distro==1.9.0
+dnspython @ file:///opt/miniconda3/conda-bld/dnspython_1763718231839/work
+email-validator @ file:///opt/miniconda3/conda-bld/email-validator-meta_1758610112771/work
+fastapi @ file:///Users/ec2-user/croot/fastapi-split_1782280678367/work
+fastapi-cli @ file:///Users/ec2-user/croot/fastapi-cli_1788159625212/work
+fastar @ file:///Users/ec2-user/croot/fastar_1782205704800/work
+frozenlist==1.8.0
+greenlet==3.5.6
+grpcio==1.84.0
+h11 @ file:///opt/miniconda3/conda-bld/h11_1761931258730/work
+httpcore @ file:///private/var/folders/nz/j6p8yfhx1mv_0grj5xl4650h0000gp/T/abs_941yf7p5zt/croot/httpcore_1748526061031/work
+httpcore2==2.13.1
+httptools @ file:///Users/ec2-user/croot/httptools_1785924104812/work
+httpx @ file:///opt/miniconda3/conda-bld/httpx_1760447188226/work
+httpx-sse==0.4.3
+httpx2==2.13.1
+idna @ file:///Users/ec2-user/croot/idna_1791365088445/work
+isodate==0.7.2
+itsdangerous==2.2.0
+Jinja2 @ file:///Users/ec2-user/croot/jinja2_1787826499770/work
+jsonpatch==1.34
+jsonpointer==3.2.0
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+kombu==5.6.2
+langchain-classic==1.0.8
+langchain-community==0.4.2
+langchain-core==1.6.9
+langchain-protocol==0.0.19
+langchain-text-splitters==1.1.3
+langsmith==0.14.7
+logger==1.4
+markdown-it-py @ file:///Users/ec2-user/croot/markdown-it-py_1787311302663/work
+MarkupSafe @ file:///Users/ec2-user/croot/markupsafe_1782390866078/work
+mdurl @ file:///opt/miniconda3/conda-bld/mdurl_1758552167969/work
+minio==7.2.20
+multidict==6.9.1
+narwhals==2.27.1
+numpy==2.5.3
+orjson==3.13.0
+packaging==26.3
+pandas==3.0.6
+pillow==12.3.0
+prompt_toolkit==3.0.53
+propcache==0.5.4
+protobuf==7.36.2
+pyarrow==25.0.1
+pycparser==3.11
+pycryptodome==3.24.0
+pydantic @ file:///Users/ec2-user/croot/pydantic_1790258320028/work
+pydantic-extra-types @ file:///Users/ec2-user/croot/pydantic-extra-types_1789651815260/work
+pydantic-settings @ file:///Users/ec2-user/croot/pydantic-settings_1782389222527/work
+pydantic_core @ file:///Users/ec2-user/croot/pydantic-core_1790237060697/work
+pydeck==0.9.3
+Pygments @ file:///Users/ec2-user/croot/pygments_1790343971033/work
+PyJWT==2.15.1
+pymilvus==3.0.2
+pymupdf==1.28.2
+PyMySQL==1.2.3
+python-dateutil==2.9.0.post0
+python-dotenv @ file:///Users/ec2-user/croot/python-dotenv_1786024123560/work
+python-multipart @ file:///Users/ec2-user/croot/python-multipart_1782399483137/work
+PyYAML @ file:///opt/miniconda3/conda-bld/pyyaml_1763465492791/work
+redis==8.1.0
+referencing==0.37.0
+regex==2026.9.29
+requests==2.34.2
+requests-toolbelt==1.0.0
+rich @ file:///Users/ec2-user/croot/rich_1778860790735/work
+rich-toolkit @ file:///Users/ec2-user/croot/rich-toolkit_1787318918700/work
+rpds-py==2026.9.1
+setuptools==83.0.0
+shellingham @ file:///opt/miniconda3/conda-bld/shellingham_1761912204037/work
+six==1.17.0
+sniffio==1.3.1
+SQLAlchemy==2.1.4
+starlette @ file:///Users/ec2-user/croot/starlette-recipe_1783948028174/work
+streamlit==1.65.0
+tenacity==9.2.1
+tiktoken==0.14.0
+toml==0.10.2
+truststore==0.10.4
+typer @ file:///Users/ec2-user/croot/typer_1790333662651/work
+typing-inspection @ file:///Users/ec2-user/croot/typing-inspection_1786534472072/work
+typing_extensions @ file:///Users/ec2-user/croot/typing_extensions_1784101000785/work
+tzdata==2026.5
+tzlocal==5.4.4
+urllib3==2.8.0
+uuid_utils==0.17.1
+uvicorn @ file:///Users/ec2-user/croot/uvicorn-split_1787144795365/work
+uvloop @ file:///Users/ec2-user/croot/uvloop_1791278090951/work
+vine==5.1.0
+watchfiles @ file:///Users/ec2-user/croot/watchfiles_1790643854400/work
+wcwidth==0.9.2
+websocket-client==1.9.2
+websockets @ file:///Users/ec2-user/croot/websockets_1782477304356/work
+wheel==0.47.0
+xxhash==4.0.1
+yarl==1.25.1
+zstandard==0.25.0
