@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 环境变量
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# 日志和临时文件
+*.log
+logs/
+tmp/
+.DS_Store
+
+# 测试和评估产物
+eval_results/
+*.tar.gz
+
+# 数据库
+*.db
+*.sqlite3
+
+# Docker 卷（如果映射到本地）
+mysql-data/
+minio-data/
+qdrant-data/
+milvus-data/
