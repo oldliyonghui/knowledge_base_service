@@ -106,12 +106,46 @@ async def list_kbs(
         )
     ).scalars().all()
 
+    counts = await kb_counts(db, [k.id for k in rows])
+    items = []
+    for kb in rows:
+        item = KnowledgeBaseResponse.model_validate(kb)
+        item.doc_count, item.chunk_count = counts.get(kb.id, (0, 0))
+        items.append(item)
+
     return KnowledgeBaseListResponse(
         total=total,
         page=page,
         page_size=page_size,
-        items=[KnowledgeBaseResponse.model_validate(k) for k in rows],
+        items=items,
     )
+
+
+async def kb_counts(
+    db: AsyncSession, kb_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, tuple[int, int]]:
+    """实时统计知识库的文档数与片段数。
+
+    KnowledgeBase.doc_count / chunk_count 只在创建时写成 0、之后没有任何地方维护，
+    直接返回会一直是 0，所以列表和详情都按文档表实时算。
+    """
+    if not kb_ids:
+        return {}
+
+    stmt = (
+        select(
+            Document.kb_id,
+            func.count(Document.id),
+            func.coalesce(func.sum(Document.chunk_count), 0),
+        )
+        .where(
+            Document.kb_id.in_(kb_ids),
+            Document.is_deleted.is_(False),
+        )
+        .group_by(Document.kb_id)
+    )
+    rows = (await db.execute(stmt)).all()
+    return {row[0]: (int(row[1]), int(row[2])) for row in rows}
 async def delete_kb(
     db: AsyncSession,
     user: User,

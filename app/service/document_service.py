@@ -230,3 +230,60 @@ async def upload_document(
         status=doc.status,
         message="文件已上传，正在后台解析",
     )
+
+
+async def retry_document(
+    db: AsyncSession, user: User, doc_id: uuid.UUID
+) -> UploadResult:
+    """重试解析：复用对象存储里已有的文件，重新投递解析任务。
+
+    允许的状态：failed（解析失败）、uploaded（任务可能丢失）；
+    正在处理中的状态会拒绝，已入库的文档需要先删除再重新上传。
+    """
+    doc = await db.get(Document, doc_id)
+    if not doc or doc.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在"
+        )
+
+    await _check_kb_permission(db, user, doc.kb_id, require_write=True)
+
+    in_progress = {
+        DocumentStatus.PARSING,
+        DocumentStatus.CHUNKING,
+        DocumentStatus.EMBEDDING,
+        DocumentStatus.INDEXING,
+    }
+    if doc.status in in_progress:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="文档正在处理中，请稍后再试"
+        )
+    if doc.status == DocumentStatus.INDEXED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="文档已入库，如需重新解析请先删除再上传",
+        )
+
+    doc.status = DocumentStatus.UPLOADED
+    doc.error_msg = None
+    db.add(doc)
+    await db.commit()
+    await db.refresh(doc)
+
+    try:
+        task_id = enqueue_ingest_task(doc.id)
+    except Exception:
+        doc.status = DocumentStatus.FAILED
+        doc.error_msg = "解析任务投递失败"
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="任务队列不可用，请稍后重试",
+        )
+
+    return UploadResult(
+        doc_id=doc.id,
+        task_id=task_id,
+        status=doc.status,
+        message="已重新投递解析任务",
+    )

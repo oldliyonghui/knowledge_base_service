@@ -1,6 +1,6 @@
 import uvicorn
 from fastapi import FastAPI, Depends
-from fastapi.exceptions import ValidationException
+from fastapi.exceptions import RequestValidationError, ValidationException
 from fastapi.responses import JSONResponse
 from fastapi import HTTPException
 from contextlib import asynccontextmanager
@@ -93,6 +93,9 @@ app = FastAPI(title="My FastAPI App", debug=settings.debug, lifespan=lifespan)
 
 app.add_exception_handler(BizException, biz_exception_handler)
 app.add_exception_handler(HTTPException, http_exception_handler)
+# 参数校验失败实际抛的是 RequestValidationError（ValidationException 不是它的父类），
+# 只注册 ValidationException 时 422 会绕过统一信封、返回裸 {"detail": [...]}。
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(ValidationException, validation_exception_handler)
 
 #api路由

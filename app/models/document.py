@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import Optional
 from sqlalchemy import (
     BigInteger,
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -15,7 +14,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
-from app.models.types import GUID, EnumStr
+from app.models.types import GUID, EnumStr, UtcDateTime
 
 
 class DocumentStatus(str, enum.Enum):
@@ -100,7 +99,7 @@ class Document(Base, TimestampMixin):
         default=False, nullable=False, index=True
     )
     deleted_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime, nullable=True
     )
 
     # 使用的 embedding 模型（记录解析时用的版本，便于重建索引）

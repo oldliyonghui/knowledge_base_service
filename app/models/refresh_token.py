@@ -2,11 +2,11 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String
+from sqlalchemy import Boolean, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
-from app.models.types import GUID
+from app.models.types import GUID, UtcDateTime
 
 
 class RefreshToken(Base, TimestampMixin):
@@ -26,7 +26,7 @@ class RefreshToken(Base, TimestampMixin):
         String(128), nullable=False, unique=True, index=True
     )
     expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
+        UtcDateTime, nullable=False
     )
     revoked: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, index=True

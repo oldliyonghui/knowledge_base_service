@@ -1,6 +1,36 @@
 import uuid
+from datetime import datetime, timezone
 
-from sqlalchemy import CHAR, TypeDecorator, String
+from sqlalchemy import CHAR, DateTime, TypeDecorator, String
+
+
+class UtcDateTime(TypeDecorator):
+    """带时区的 UTC 时间列。
+
+    MySQL 的 DATETIME 本身不存时区，即使写 DateTime(timezone=True)，
+    驱动取出来的也是 naive datetime，接口就会返回不带 Z/+00:00 的时间字符串
+    （api.md 约定的是 ISO 8601 UTC），前端按本地时间解析会整体偏 8 小时。
+
+    这里统一约定：库里存的就是 UTC，写入时把 aware 转成 naive UTC，
+    读出时补回 UTC 时区，这样 Pydantic 序列化出来就带 +00:00。
+    """
+
+    impl = DateTime
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
 
 class GUID(TypeDecorator):

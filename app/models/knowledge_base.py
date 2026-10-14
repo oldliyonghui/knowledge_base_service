@@ -78,6 +78,10 @@ class KnowledgeBase(Base, TimestampMixin):
         back_populates="knowledge_base",
         cascade="all, delete-orphan",
         passive_deletes=True,
+        # 详情接口要带上 acls；默认懒加载在 async 会话里取出对象后
+        # 再访问会触发 MissingGreenlet（见 GET /kbs/{id} 的 500），
+        # 与 User.roles 一样改成 selectin 预加载。
+        lazy="selectin",
     )
 
     __table_args__ = (

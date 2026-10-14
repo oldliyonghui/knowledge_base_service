@@ -1,13 +1,14 @@
 import uuid
 
-from fastapi import APIRouter, Depends, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_superuser, get_current_user, get_db
 from app.models.user import User
 from app.schemas.user import (
+    AdminPasswordReset,
     UserCreate,
+    UserListResponse,
     UserResponse,
     UserSelfUpdate,
     UserUpdate,
@@ -50,18 +51,29 @@ async def create_user(
 
 @router.get(
     "",
-    response_model=list[UserResponse],
+    response_model=UserListResponse,
     dependencies=[Depends(get_current_superuser)],
 )
 async def list_users(
     tenant_id: uuid.UUID | None = None,
+    keyword: str | None = Query(None, description="按用户名 / 邮箱 / 姓名模糊匹配"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-) -> list[UserResponse]:
-    stmt = select(User)
-    if tenant_id:
-        stmt = stmt.where(User.tenant_id == tenant_id)
-    users = (await db.execute(stmt)).scalars().all()
-    return [UserResponse.model_validate(u) for u in users]
+) -> UserListResponse:
+    users, total = await user_service.list_users(
+        db,
+        tenant_id=tenant_id,
+        keyword=keyword,
+        page=page,
+        page_size=page_size,
+    )
+    return UserListResponse(
+        total=total,
+        page=page,
+        page_size=page_size,
+        items=[UserResponse.model_validate(u) for u in users],
+    )
 
 
 @router.get(
@@ -90,3 +102,18 @@ async def update_user(
     user = await user_service.get_user_or_404(db, user_id)
     user = await user_service.update_user(db, user, payload)
     return UserResponse.model_validate(user)
+
+
+@router.post(
+    "/{user_id}/reset-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(get_current_superuser)],
+)
+async def reset_user_password(
+    user_id: uuid.UUID,
+    payload: AdminPasswordReset,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """管理员重置指定用户密码，并吊销该用户所有 refresh token。"""
+    user = await user_service.get_user_or_404(db, user_id)
+    await user_service.reset_password(db, user, payload.new_password)

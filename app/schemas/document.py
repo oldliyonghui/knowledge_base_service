@@ -84,9 +84,12 @@ class DocumentUploadResponse(BaseModel):
     """上传接口 202 返回体。"""
 
     doc_id: uuid.UUID
-    task_id: uuid.UUID
+    # 命中秒传（同知识库已有同名同内容且已入库）时不会投递解析任务，task_id 为空
+    task_id: uuid.UUID | None = None
     status: DocumentStatus = DocumentStatus.UPLOADED
     message: str = "文件已上传，正在后台解析"
+    # 命中秒传时为 True，前端据此提示「文件已存在」
+    deduplicated: bool = False
 
 
 # ---------- 状态查询 ----------

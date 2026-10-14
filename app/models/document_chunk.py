@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -13,7 +12,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from app.models.types import GUID, EnumStr
+from app.models.types import GUID, EnumStr, UtcDateTime
 from app.models.base import Base, TimestampMixin
 
 
@@ -99,7 +98,7 @@ class DocumentChunk(Base, TimestampMixin):
         default=False, nullable=False, index=True
     )
     deleted_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime, nullable=True
     )
 
     # 关系

@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -15,7 +14,7 @@ from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
-from app.models.types import GUID, EnumStr
+from app.models.types import GUID, EnumStr, UtcDateTime
 
 
 class MessageRole(str, enum.Enum):
@@ -59,7 +58,7 @@ class ChatSession(Base, TimestampMixin):
         Integer, nullable=False, default=0
     )
     last_message_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True, index=True
+        UtcDateTime, nullable=True, index=True
     )
 
     is_deleted: Mapped[bool] = mapped_column(

@@ -64,7 +64,10 @@ async def get_kb(
     kb, _, _ = await perm_service.require_kb_permission(
         db, current_user, kb_id, AclPermission.READ
     )
-    return KnowledgeBaseDetail.model_validate(kb)
+    detail = KnowledgeBaseDetail.model_validate(kb)
+    counts = await kb_service.kb_counts(db, [kb.id])
+    detail.doc_count, detail.chunk_count = counts.get(kb.id, (0, 0))
+    return detail
 
 
 @router.patch("/{kb_id}", response_model=KnowledgeBaseResponse)
@@ -115,6 +118,7 @@ async def upload_kb_document(
         task_id=result.task_id,
         status=result.status,
         message=result.message,
+        deduplicated=result.deduplicated,
     )
 
 # ---------- ACL 管理 ----------

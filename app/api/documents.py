@@ -14,7 +14,9 @@ from app.schemas.document import (
     DocumentListResponse,
     DocumentResponse,
     DocumentStatusResponse,
+    DocumentUploadResponse,
 )
+from app.service import document_service
 from app.service import permission as perm_service
 from datetime import datetime, timezone
 
@@ -128,6 +130,27 @@ async def list_documents(
     )
 
 
+@router.post(
+    "/{doc_id}/retry",
+    response_model=DocumentUploadResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="重新投递文档解析任务",
+)
+async def retry_document(
+    doc_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DocumentUploadResponse:
+    """解析失败后重试：复用对象存储里已有的文件，重新投递解析任务。"""
+    result = await document_service.retry_document(db, current_user, doc_id)
+    return DocumentUploadResponse(
+        doc_id=result.doc_id,
+        task_id=result.task_id,
+        status=result.status,
+        message=result.message,
+    )
+
+
 @router.delete("/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(
     doc_id: uuid.UUID,
@@ -152,7 +175,6 @@ async def delete_document(
     db.add(doc)
     await db.commit()
 
-    # TODO: 投递 celery 任务清理 Milvus 向量和 MinIO 文件
     # 投递异步清理任务
     try:
         from app.worker.tasks import delete_document as delete_task

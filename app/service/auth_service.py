@@ -121,6 +121,7 @@ async def refresh_tokens(
     )
     record = (await db.execute(stmt)).scalars().first()
 
+    # 模型层统一返回带时区的 UTC 时间（UtcDateTime），这里直接和 aware 的当前时间比较
     if not record or record.expires_at < datetime.now(timezone.utc):
         raise invalid
 

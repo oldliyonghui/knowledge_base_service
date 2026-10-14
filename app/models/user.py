@@ -5,7 +5,6 @@ from typing import Optional
 from sqlalchemy import (
     Boolean,
     Column,
-    DateTime,
     ForeignKey,
     Index,
     String,
@@ -16,7 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
-from app.models.types import GUID
+from app.models.types import GUID, UtcDateTime
 
 
 # 用户-角色 多对多
@@ -86,7 +85,7 @@ class User(Base, TimestampMixin):
         Boolean, nullable=False, default=False
     )
     last_login_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime, nullable=True
     )
 
     # 关系

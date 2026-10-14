@@ -30,6 +30,11 @@ class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
+class AdminPasswordReset(BaseModel):
+    """管理员重置他人密码。"""
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
 class UserSelfUpdate(BaseModel):
     """普通用户改自己的信息。"""
     email: Optional[EmailStr] = None
@@ -44,7 +49,16 @@ class UserResponse(UserBase):
     dept_id: Optional[uuid.UUID] = None
     is_active: bool
     is_superuser: bool
+    role_ids: list[uuid.UUID] = Field(default_factory=list)
     role_codes: list[str] = Field(default_factory=list)
     last_login_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+
+
+class UserListResponse(BaseModel):
+    """分页响应，字段与 /kbs、/documents 等列表接口保持一致。"""
+    total: int
+    page: int
+    page_size: int
+    items: list[UserResponse]
