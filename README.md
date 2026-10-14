@@ -1,7 +1,8 @@
 # knowledge_base_service
 # RAG 知识库服务
 
-基于 FastAPI + Milvus + 通义千问的企业级 RAG（检索增强生成）知识库系统。
+
+基于 FastAPI + Milvus + 通义千问的 RAG 知识库系统。
 
 上传 PDF → 自动解析分块 → 向量化入库 → 语义检索 → 大模型生成带引用的回答。
 
@@ -9,11 +10,11 @@
 
 - [功能特性](#功能特性)
 - [技术栈](#技术栈)
-- [系统架构](#系统架构)
 - [快速开始](#快速开始)
 - [配置说明](#配置说明)
 - [API 文档](#api-文档)
 - [项目结构](#项目结构)
+- [系统架构](#系统架构)
 
 ## 功能特性
 
@@ -33,7 +34,7 @@
 
 ### 检索与问答
 - Milvus 向量检索（cosine 相似度）
-- 通义 `gte-rerank-v2` 精排
+- 通义 `qwen3.7-max` 精排
 - 相对阈值 + 绝对阈值双重过滤
 - 带引用回答（chunk_id、文档名、页码、分数）
 - 流式输出（SSE）
@@ -46,7 +47,6 @@
 - 可重试 / 不可重试异常分级
 - 结构化日志
 - Docker Compose 一键起依赖
-- systemd 常驻应用层
 
 ## 技术栈
 
@@ -60,68 +60,10 @@
 | 对象存储 | MinIO (pgsty/silo) |
 | 异步任务 | Celery 5.4 |
 | LLM | 通义千问 qwen-plus |
-| Embedding | 通义 text-embedding-v3 (1024维) |
-| Rerank | 通义 gte-rerank-v2 |
+| Embedding | 通义 text-embedding-v3  |
 | LangChain | langchain-openai / langchain-community |
 | 认证 | PyJWT + argon2 |
-| 部署 | Docker Compose + systemd + Nginx |
 
-## 系统架构
-
-                        ┌──────────────────────────┐
-                        │        客户端             │
-                        │  Web / Streamlit / App   │
-                        └────────────┬─────────────┘
-                                     │
-                                     │ HTTPS
-                                     ▼
-                        ┌──────────────────────────┐
-                        │         Nginx            │
-                        │   反向代理 / HTTPS 终止     │
-                        └────────────┬─────────────┘
-                                     │
-                                     │ HTTP (127.0.0.1:8000)
-                                     ▼
-       ┌─────────────────────────────────────────────────────────┐
-       │                       FastAPI                           │
-       │                                                         │
-       │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
-       │  │  Auth    │  │   KB     │  │   Doc    │  │  Chat    │ │
-       │  └──────────┘  └──────────┘  └──────────┘  └──────────┘ │
-       └────────┬─────────────────────────────────┬──────────────┘
-                │                                 │
-                │ 投递任务                         │ 检索
-                ▼                                 ▼
-       ┌──────────────────┐              ┌──────────────────┐
-       │  Celery Worker   │              │     Milvus       │
-       │  异步任务处理       │              │  向量库 (19530)   │
-       └────────┬─────────┘              └──────────────────┘
-                │                                ▲
-                │ 解析 / embedding / 写入          │
-                │                                │
-                ▼                                │
-   ┌────────────────────┬────────────────────┬───┴────────────────┐
-   │      MySQL         │       MinIO        │       Redis        │
-   │  业务数据 / 权限      │   PDF 文件存储      │  队列 / 缓存         │
-   │      (3306)        │      (9000)        │      (6379)        │
-   └────────────────────┴────────────────────┴────────────────────┘
-
-
-
-**数据流**：
-上传 PDF
-→ FastAPI 存文件到 MinIO
-→ 落 MySQL documents 记录
-→ 投递 Celery 任务
-→ Worker: 下载 → 解析 → 分块 → embedding → 写 Milvus
-→ 更新状态为 indexed
-
-提问
-→ FastAPI 检索 Milvus（带权限过滤）
-→ rerank 精排
-→ 组装 prompt 调通义千问
-→ 落 MySQL 消息 + citations
-→ 返回答案 + 引用
 
 
 ## 快速开始
@@ -178,27 +120,31 @@ python -m celery -A app.worker.celery_app.celery_app worker \
   --loglevel=INFO --pool=solo
 验证：
 
-bash
 curl -X POST http://127.0.0.1:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"admin123456"}'
 返回 access_token 就成功了。
+```
 
-配置说明
+
+## 配置说明
 
 所有配置通过环境变量或 .env 文件提供。
 必填项
 
-变量	说明
-DASHSCOPE_API_KEY	通义千问 API Key（必填）
-JWT_SECRET_KEY	JWT 签名密钥，强随机字符串
-DATABASE_URL	MySQL 异步连接串
-DATABASE_URL_SYNC	MySQL 同步连接串（Worker 用）
-CELERY_BROKER_URL	Redis broker
-MILVUS_URI	Milvus 地址
-S3_ENDPOINT	MinIO 地址（不带 http://）
-关键配置项
+| 变量	| 说明 |
+| --- | --- |
+|DASHSCOPE_API_KEY	|通义千问 API Key（必填）|
+|JWT_SECRET_KEY	|JWT 签名密钥，强随机字符串|
+|DATABASE_URL	|MySQL 异步连接串|
+|DATABASE_URL_SYNC	|MySQL 同步连接串（Worker 用）|
+|CELERY_BROKER_URL	|Redis broker|
+|MILVUS_URI	|Milvus 地址|
+|S3_ENDPOINT	|MinIO 地址（不带 http://）|
 
+
+关键配置项
+```
 dotenv
 # 运行模式
 DEBUG=false                          
@@ -238,7 +184,10 @@ S3_ACCESS_KEY=minioadmin
 S3_SECRET_KEY=minioadmin
 S3_BUCKET=rag-docs
 S3_SECURE=false
+```
 
+
+## API 文档
 
 启动后访问 http://127.0.0.1:8000/docs 查看交互式 API 文档。
 
@@ -246,45 +195,48 @@ S3_SECURE=false
 
 认证
 
-方法	路径	说明
-POST	/api/v1/auth/login	登录
-POST	/api/v1/auth/refresh	刷新 token
-POST	/api/v1/auth/logout	登出
-GET	/api/v1/auth/me	当前用户
-POST	/api/v1/auth/change-password	改密码
+|方法	|路径	|说明|
+|---- |---  |---|
+|POST	|/api/v1/auth/login	|登录|
+|POST	|/api/v1/auth/refresh	|刷新 token|
+|POST	|/api/v1/auth/logout	|登出|
+|GET	|/api/v1/auth/me	|当前用户|
+|POST	|/api/v1/auth/change-password	|改密码|
+
 知识库
+| 方法	| 路径 |	说明|
+|---- |---  |---|
+|POST	|/api/v1/kbs	|创建知识库|
+|GET	|/api/v1/kbs	|我的知识库列表|
+|GET	|/api/v1/kbs/{id}	|知识库详情|
+|PATCH	|/api/v1/kbs/{id}	|更新|
+|DELETE	|/api/v1/kbs/{id}	|删除（需 ADMIN）|
+|GET	|/api/v1/kbs/{id}/my-permission	|我的权限|
+|POST	|/api/v1/kbs/{id}/acls	|授权给用户/角色/部门|
+|DELETE	|/api/v1/kbs/{id}/acls/{acl_id}	|撤销授权|
 
-方法	路径	说明
-POST	/api/v1/kbs	创建知识库
-GET	/api/v1/kbs	我的知识库列表
-GET	/api/v1/kbs/{id}	知识库详情
-PATCH	/api/v1/kbs/{id}	更新
-DELETE	/api/v1/kbs/{id}	删除（需 ADMIN）
-GET	/api/v1/kbs/{id}/my-permission	我的权限
-POST	/api/v1/kbs/{id}/acls	授权给用户/角色/部门
-DELETE	/api/v1/kbs/{id}/acls/{acl_id}	撤销授权
 文档
+| 方法	| 路径 |	说明|
+|---- |---  |---|
+|POST	|/api/v1/kbs/{kb_id}/documents/upload	|上传 PDF（返回 202）|
+|GET	|/api/v1/documents	|文档列表|
+|GET	|/api/v1/documents/{id}	|文档详情|
+|GET	|/api/v1/documents/{id}/status	|处理状态（轮询）|
+|DELETE	|/api/v1/documents/{id}	|删除文档|
 
-方法	路径	说明
-POST	/api/v1/kbs/{kb_id}/documents/upload	上传 PDF（返回 202）
-GET	/api/v1/documents	文档列表
-GET	/api/v1/documents/{id}	文档详情
-GET	/api/v1/documents/{id}/status	处理状态（轮询）
-DELETE	/api/v1/documents/{id}	删除文档
 问答
+| 方法	| 路径 |	说明|
+|---- |---  |---|
+|POST	|/api/v1/chat/sessions	|创建会话|
+|GET	|/api/v1/chat/sessions	|会话列表|
+|GET	|/api/v1/chat/sessions/{id}/messages	|历史消息|
+|POST	|/api/v1/chat/sessions/{id}/messages	|提问|
+|POST	|/api/v1/chat/sessions/{id}/messages/stream	|流式提问（SSE）|
+|DELETE	|/api/v1/chat/sessions/{id}	|删除会话|
+|POST	|/api/v1/chat/messages/{id}/feedback	|点赞/点踩|
 
-方法	路径	说明
-POST	/api/v1/chat/sessions	创建会话
-GET	/api/v1/chat/sessions	会话列表
-GET	/api/v1/chat/sessions/{id}/messages	历史消息
-POST	/api/v1/chat/sessions/{id}/messages	提问
-POST	/api/v1/chat/sessions/{id}/messages/stream	流式提问（SSE）
-DELETE	/api/v1/chat/sessions/{id}	删除会话
-POST	/api/v1/chat/messages/{id}/feedback	点赞/点踩
 使用示例
-
-完整流程：
-
+```
 bash
 # 1. 登录
 TOKEN=$(curl -s -X POST http://127.0.0.1:8000/api/v1/auth/login \
@@ -334,9 +286,11 @@ curl -N -X POST http://127.0.0.1:8000/api/v1/chat/sessions/$SESSION_ID/messages/
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"question":"详细讲讲","stream":true}'
-项目结构
+```
 
-text
+
+## 项目结构
+```
 ragService/
 ├── app/
 │   ├── main.py                    # FastAPI 入口
@@ -395,14 +349,50 @@ ragService/
 ├── requirements.txt
 ├── .env.example
 └── README.md
+```
 
+### 系统架构
+```
 
-#后续规划
-□ Query 改写（LLM 拆解多主题问题）
-□ 混合检索（向量 + BM25）
-□ Redis 缓存（可读 kb 列表、embedding 结果）
-□ 文档级 ACL
+                        ┌──────────────────────────┐
+                        │        客户端             │
+                        │  Web / Streamlit / App   │
+                        └────────────┬─────────────┘
+                                     │
+                                     │ HTTPS
+                                     ▼
+                        ┌──────────────────────────┐
+                        │         Nginx            │
+                        │   反向代理 / HTTPS 终止    │
+                        └────────────┬─────────────┘
+                                     │
+                                     │ HTTP (127.0.0.1:8000)
+                                     ▼
+       ┌─────────────────────────────────────────────────────────┐
+       │                       FastAPI                            │
+       │                                                          │
+       │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐│
+       │  │  Auth    │  │   KB     │  │   Doc    │  │  Chat    ││
+       │  └──────────┘  └──────────┘  └──────────┘  └──────────┘│
+       └────────┬─────────────────────────────────┬─────────────┘
+                │                                 │
+                │ 投递任务                         │ 检索
+                ▼                                 ▼
+       ┌──────────────────┐              ┌──────────────────┐
+       │  Celery Worker   │              │     Milvus       │
+       │  异步任务处理     │              │  向量库 (19530)  │
+       └────────┬─────────┘              └──────────────────┘
+                │                                 ▲
+                │ 解析 / embedding / 写入          │
+                │                                 │
+                ▼                                 │
+   ┌────────────────────┬────────────────────┬───┴────────────────┐
+   │      MySQL         │       MinIO        │       Redis        │
+   │  业务数据 / 权限    │   PDF 文件存储      │  队列 / 缓存        │
+   │      (3306)        │      (9000)        │      (6379)        │
+   └────────────────────┴────────────────────┴────────────────────┘
 
+```
 
 作者：enslivan
 邮箱：18335103323@163.com
