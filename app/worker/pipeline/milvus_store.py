@@ -9,7 +9,6 @@ from pymilvus import (
 )
 
 from app.core.config import settings
-from app.core.config import settings
 COLLECTION_NAME = settings.milvus_collection
 _client: MilvusClient | None = None
 

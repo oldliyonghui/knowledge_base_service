@@ -4,9 +4,8 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+
 from app.models.document import Document
-from app.models.document_chunk import DocumentChunk
 from app.schemas.document_chunk import ChunkCitation
 from app.service.permission import build_milvus_acl_filter
 from app.worker.pipeline.embedder import embed_texts
