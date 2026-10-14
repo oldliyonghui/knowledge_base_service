@@ -107,6 +107,7 @@
    └────────────────────┴────────────────────┴────────────────────┘
 
 
+
 **数据流**：
 上传 PDF
 → FastAPI 存文件到 MinIO
@@ -122,7 +123,6 @@
 → 落 MySQL 消息 + citations
 → 返回答案 + 引用
 
-text
 
 ## 快速开始
 
@@ -137,7 +137,7 @@ text
 
 ```bash
 # 1. 克隆代码
-git clone https://github.com/你的用户名/ragService.git
+git clone https://github.com/oldliyonghui/knowledge_base_service.git
 cd ragService
 
 # 2. 起依赖服务
