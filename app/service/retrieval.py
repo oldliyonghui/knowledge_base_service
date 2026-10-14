@@ -13,6 +13,12 @@ from app.worker.pipeline.embedder import embed_texts
 from app.worker.pipeline.milvus_store import COLLECTION_NAME, get_client
 from app.core.config import settings
 from app.service.reranker import rerank
+from app.service.query_rewriter import rewrite_query
+from app.service.bm25_index import get_index as get_bm25_index
+from app.service.fusion import rrf_fusion
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -77,7 +83,13 @@ async def retrieve(
     question: str,
     top_k: int,
 ) -> list[RetrievedChunk]:
-    """检索主流程：embed → Milvus 粗排 → rerank 精排 → 回表补元数据。"""
+    """检索主流程：
+    1. query 改写（可选）得到 N 个 query
+    2. 每个 query 走向量检索（可选加 BM25）
+    3. RRF 融合多路结果
+    4. rerank 精排
+    5. 回表补元数据
+    """
 
     if not readable_kb_ids:
         return []
@@ -89,39 +101,87 @@ async def retrieve(
         user_role_ids=user.role_ids or None,
     )
 
-    query_vector = _embed_query(question)
+    # ---------- 1. query 改写 ----------
+    queries = rewrite_query(question)
+    logger.info("检索 queries=%s", queries)
 
-    # ---------- 1. 粗排：多召回一些，给 rerank 留余量 ----------
     coarse_k = max(top_k * 4, settings.rag_coarse_top_k)
-    hits = _milvus_search(query_vector, filter_expr, coarse_k)
 
-    # 粗排阶段用较低的阈值，只砍掉明显不相关的
-    if not hits:
+    # ---------- 2. 多路召回 ----------
+    vec_hit_lists: list[list[dict]] = []
+    bm25_hit_lists: list[list[dict]] = []
+
+    for q in queries:
+        # 2.1 向量检索
+        qvec = _embed_query(q)
+        hits = _milvus_search(qvec, filter_expr, coarse_k)
+        if hits:
+            vec_hit_lists.append(hits)
+
+        # 2.2 BM25 检索（如果开启）
+        if settings.rag_hybrid_enabled:
+            bm25_index = get_bm25_index()
+            bm25_results = bm25_index.search(
+                query=q,
+                top_k=settings.rag_bm25_top_k,
+                tenant_id=str(user.tenant_id),
+                kb_ids=[str(k) for k in readable_kb_ids],
+            )
+            if bm25_results:
+                # 转换成和 Milvus 一致的格式
+                bm25_hits = [
+                    {
+                        "chunk_id": d.chunk_id,
+                        "doc_id": d.doc_id,
+                        "kb_id": d.kb_id,
+                        "content": d.content,
+                        "score": bm25_score,        # BM25 分数
+                        "page_start": d.page_start,
+                        "page_end": d.page_end,
+                        "section_title": d.section_title,
+                        "file_name": d.file_name,
+                        "_source": "bm25",
+                    }
+                    for d, bm25_score in bm25_results
+                ]
+                bm25_hit_lists.append(bm25_hits)
+
+    # ---------- 3. 融合 ----------
+    all_lists = vec_hit_lists + bm25_hit_lists
+    if not all_lists:
         return []
 
-    # ---------- 2. 精排：rerank ----------
-    # app/service/retrieval.py
-    if settings.rag_rerank_enabled and len(hits) > top_k:
-        docs = [h["content"] for h in hits]
+    # 只有一路，不需要融合
+    if len(all_lists) == 1:
+        candidates = all_lists[0]
+    else:
+        candidates = rrf_fusion(all_lists, k=settings.rag_rrf_k)
+
+    # 粗排候选太多会拖慢 rerank
+    candidates = candidates[:coarse_k]
+    if not candidates:
+        return []
+
+    # ---------- 4. rerank 精排 ----------
+    if settings.rag_rerank_enabled and len(candidates) > top_k:
+        docs = [h["content"] for h in candidates]
         reranked = rerank(question, docs, top_n=top_k)
         hits = apply_rerank_filter(
-            hits, reranked, top_k, settings.rag_rerank_min_score
+            candidates, reranked, top_k, settings.rag_rerank_min_score
         )
     else:
-        hits = hits[:top_k]
+        hits = candidates[:top_k]
 
     if not hits:
         return []
 
-    # ---------- 3. 回表：确认文档仍然有效（未被软删） ----------
+    # ---------- 5. 回表 ----------
     doc_ids = list({uuid.UUID(h["doc_id"]) for h in hits})
     stmt = select(Document.id).where(
         Document.id.in_(doc_ids),
         Document.is_deleted.is_(False),
     )
-    valid_doc_ids = {
-        str(x) for x in (await db.execute(stmt)).scalars().all()
-    }
+    valid_doc_ids = {str(x) for x in (await db.execute(stmt)).scalars().all()}
 
     chunks: list[RetrievedChunk] = []
     for h in hits:
@@ -133,8 +193,7 @@ async def retrieve(
                 doc_id=uuid.UUID(h["doc_id"]),
                 kb_id=uuid.UUID(h["kb_id"]),
                 content=h["content"],
-                # 保留原始 cosine score；rerank 分数可选放 metadata
-                score=float(h["score"]),
+                score=float(h.get("score") or 0),
                 page_start=h.get("page_start") or None,
                 page_end=h.get("page_end") or None,
                 section_title=h.get("section_title") or None,

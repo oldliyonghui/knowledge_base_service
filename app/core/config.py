@@ -52,13 +52,21 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 2048
     llm_temperature: float = 0.2
     dashscope_api_key: str = ""
+    # ---------- Query 改写 ----------
+    rag_query_rewrite_enabled: bool = False
+    rag_query_rewrite_max: int = 5  # 最多改写几条
+
+    # ---------- 混合检索 ----------
+    rag_hybrid_enabled: bool = False
+    rag_bm25_top_k: int = 30  # BM25 召回数
+    rag_rrf_k: int = 60  # RRF 融合参数
 
     # ---------- RAG ----------
     rag_top_k: int = 5
     rag_max_context_tokens: int = 6000
     rag_history_turns: int = 6
     rag_rerank_enabled: bool = True
-    rag_rerank_model: str = "qwen3-rerank"
+    rag_rerank_model: str = "qwen3.7-text-rerank"
     rag_coarse_top_k: int = 30  # 粗排召回数
     rag_min_score: float = 0.0  # 粗排最低分（放宽，让 rerank 挑）
     rag_rerank_min_score: float = 0.5  # rerank 后的最低分
