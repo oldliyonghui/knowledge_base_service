@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi.concurrency import run_in_threadpool
 
 
 from app.models.document import Document
@@ -31,6 +32,7 @@ class RetrievedChunk:
     page_end: int | None
     section_title: str | None
     file_name: str | None
+    rerank_score: float | None = None
 
 
 def _embed_query(question: str) -> list[float]:
@@ -75,6 +77,20 @@ def _milvus_search(
     return hits
 
 
+async def _embed_query_async(question: str) -> list[float]:
+    """embedding 是同步 HTTP 调用，丢线程池执行。"""
+    return await run_in_threadpool(_embed_query, question)
+
+
+async def _milvus_search_async(
+    query_vector: list[float],
+    filter_expr: str,
+    top_k: int,
+) -> list[dict]:
+    """pymilvus 同步客户端，丢线程池执行。"""
+    return await run_in_threadpool(_milvus_search, query_vector, filter_expr, top_k)
+
+
 async def retrieve(
     db: AsyncSession,
     user,
@@ -95,13 +111,14 @@ async def retrieve(
 
     filter_expr = build_milvus_acl_filter(
         tenant_id=user.tenant_id,
+
         readable_kb_ids=readable_kb_ids,
         user_dept_ids=[user.dept_id] if user.dept_id else None,
         user_role_ids=user.role_ids or None,
     )
 
     # ---------- 1. query 改写 ----------
-    queries = rewrite_query(question)
+    queries = await rewrite_query(question)
     logger.info("检索 queries=%s", queries)
 
     coarse_k = max(top_k * 4, settings.rag_coarse_top_k)
@@ -112,15 +129,16 @@ async def retrieve(
 
     for q in queries:
         # 2.1 向量检索
-        qvec = _embed_query(q)
-        hits = _milvus_search(qvec, filter_expr, coarse_k)
+        qvec = await _embed_query_async(q)
+        hits = await _milvus_search_async(qvec, filter_expr, coarse_k)
         if hits:
             vec_hit_lists.append(hits)
 
         # 2.2 BM25 检索（如果开启）
         if settings.rag_hybrid_enabled:
             bm25_index = get_bm25_index()
-            bm25_results = bm25_index.search(
+            bm25_results = await run_in_threadpool(
+                bm25_index.search,
                 query=q,
                 top_k=settings.rag_bm25_top_k,
                 tenant_id=str(user.tenant_id),
@@ -164,7 +182,11 @@ async def retrieve(
     # ---------- 4. rerank 精排 ----------
     if settings.rag_rerank_enabled and len(candidates) > top_k:
         docs = [h["content"] for h in candidates]
-        reranked = rerank(question, docs, top_n=top_k)
+        try:
+            reranked = await run_in_threadpool(rerank, question, docs, top_n=top_k)
+        except Exception:
+            logger.exception("rerank 调用失败，降级为融合排序（无精排）")
+            reranked = []
         hits = apply_rerank_filter(
             candidates, reranked, top_k, settings.rag_rerank_min_score
         )
@@ -192,11 +214,16 @@ async def retrieve(
                 doc_id=uuid.UUID(h["doc_id"]),
                 kb_id=uuid.UUID(h["kb_id"]),
                 content=h["content"],
-                score=float(h.get("score") or 0),
+                score=(
+                    h["rerank_score"]
+                    if h.get("rerank_score") is not None
+                    else float(h.get("score") or 0)
+                ),
                 page_start=h.get("page_start") or None,
                 page_end=h.get("page_end") or None,
                 section_title=h.get("section_title") or None,
                 file_name=h.get("file_name") or None,
+                rerank_score=h.get("rerank_score"),
             )
         )
     return chunks
@@ -213,6 +240,7 @@ def to_citations(chunks: list[RetrievedChunk]) -> list[ChunkCitation]:
             section_title=c.section_title,
             content=c.content,
             score=c.score,
+            rerank_score=c.rerank_score,
         )
         for c in chunks
     ]
@@ -240,9 +268,17 @@ def apply_rerank_filter(
         return []
 
     threshold = max(max_score * 0.7, min_score)
-    result = [hits[i] for i, s in reranked if s >= threshold]
+    result = []
+    for i, s in reranked:
+        if s >= threshold:
+            h = dict(hits[i])  # 拷贝，避免污染调用方的 candidates
+            h["rerank_score"] = s
+            result.append(h)
 
     if not result:
-        result = [hits[reranked[0][0]]]
+        i, s = reranked[0]
+        h = dict(hits[i])
+        h["rerank_score"] = s
+        result = [h]
 
     return result

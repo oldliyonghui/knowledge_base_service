@@ -24,21 +24,10 @@ async def get_current_user(
 
     try:
         payload = security.decode_token(token)
-    except Exception as e:
-        print("=" * 60, flush=True)
-        print("[get_current_user] decode 失败:", type(e).__name__, repr(e), flush=True)
-        print("[get_current_user] token 总长度:", len(token), flush=True)
-        print("[get_current_user] 点数(应为 2):", token.count("."), flush=True)
-        print("[get_current_user] 完整 token:", repr(token), flush=True)
-        parts = token.split(".")
-        for i, p in enumerate(parts):
-            print(f"[get_current_user] part[{i}] 长度={len(p)}", flush=True)
-        print("=" * 60, flush=True)
+    except Exception:
         raise cred_exc
-    print("[get_current_user] payload:", payload, flush=True)
 
     if payload.get("type") != "access":
-        print("[get_current_user] type 不是 access:", payload.get("type"), flush=True)
         raise cred_exc
 
     try:

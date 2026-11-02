@@ -11,6 +11,7 @@ from app.models.document import Document, DocumentStatus
 from app.models.document_chunk import DocumentChunk  # noqa: F401 确保建表
 from app.models.user import User
 from app.service import storage
+from fastapi.concurrency import run_in_threadpool
 from app.service.task_queue import enqueue_ingest_task
 from app.models.kb_acl import AclPermission
 from app.service import permission as perm_service
@@ -146,7 +147,7 @@ async def upload_document(
     if existing:
         # 重新上传文件到新 object_key
         try:
-            storage.upload_bytes(object_key, data, content_type)
+            await run_in_threadpool(storage.upload_bytes, object_key, data, content_type)
         except RuntimeError as e:
             raise HTTPException(502, str(e))
 
@@ -162,7 +163,7 @@ async def upload_document(
             await db.refresh(existing)
         except Exception:
             await db.rollback()
-            storage.delete_object(object_key)
+            await run_in_threadpool(storage.delete_object, object_key)
             raise HTTPException(500, "文档记录恢复失败")
 
         task_id = enqueue_ingest_task(existing.id)
@@ -176,7 +177,7 @@ async def upload_document(
     # 5. 上传对象存储
 
     try:
-        storage.upload_bytes(object_key, data, content_type)
+        await run_in_threadpool(storage.upload_bytes, object_key, data, content_type)
     except RuntimeError as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -204,7 +205,7 @@ async def upload_document(
     except Exception:
         await db.rollback()
         # 补偿：落库失败则删除刚上传的对象
-        storage.delete_object(object_key)
+        await run_in_threadpool(storage.delete_object, object_key)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="文档入库失败",

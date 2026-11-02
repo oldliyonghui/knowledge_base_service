@@ -7,6 +7,7 @@ from minio import S3Error
 from app.core.config import settings
 from app.models.document import Document, DocumentStatus
 from app.models.document_chunk import DocumentChunk, VectorStatus
+from app.models.kb_acl import KBAcl
 from app.service.storage import get_minio_client
 from app.worker.celery_app import celery_app
 from app.worker.db import session_scope
@@ -206,8 +207,13 @@ def ingest_document(self, doc_id_str: str) -> dict:
         _mark_failed(doc_id, f"retrying: {e}")
         raise self.retry(exc=e)
 
+    except (TypeError, AttributeError, KeyError, NameError) as e:
+        logger.exception("文档入库出现编程错误，不重试 doc_id=%s", doc_id)
+        _mark_failed(doc_id, f"code error: {type(e).__name__}: {e}")
+        return {"doc_id": doc_id_str, "status": "failed", "error": str(e)}
+
     except Exception as e:
-        # 未知异常统一按可重试处理，超过 max_retries 后落 failed
+        logger.exception("文档入库未知异常，将重试 doc_id=%s", doc_id)
         _mark_failed(doc_id, f"unexpected: {e}")
         raise self.retry(exc=RecoverableIngestError(str(e)))
 
@@ -321,20 +327,25 @@ def delete_document(self, doc_id_str: str) -> dict:
     bind=True,
     max_retries=3,
     default_retry_delay=60,
+    autoretry_for=(RecoverableIngestError,),
+    retry_backoff=True,
+    retry_jitter=True,
 )
 def cleanup_kb(self, kb_id_str: str) -> dict:
-    """清理知识库的所有向量和文件。
+    """清理知识库的所有向量和文件与关系数据库。
 
     步骤：
     1. 从 Milvus 按 kb_id 删所有向量
-    2. 从 MinIO 删该 KB 下所有文档的文件
-    3. 关系库 document_chunks 已被 CASCADE 清空
+    2. 硬删关系库里的document_chunks 与 kb_acl
+    3. 从 MinIO 删该 KB 下所有文档的文件
 
     幂等：重复执行不会报错。
     """
     kb_id = uuid.UUID(kb_id_str)
     deleted_vectors = 0
     deleted_objects = 0
+    deleted_chunks = 0
+    deleted_acls = 0
 
     # 1. 清 Milvus
     try:
@@ -345,13 +356,24 @@ def cleanup_kb(self, kb_id_str: str) -> dict:
             collection_name=COLLECTION_NAME,
             filter=f'kb_id == "{kb_id}"',
         )
-        deleted_vectors = res.get("delete_count", 0)
+        deleted_vectors = res.get("delete_cnt") or res.get("delete_count") or 0
         logger.info("Milvus 删除向量 kb_id=%s count=%s", kb_id, deleted_vectors)
     except Exception as e:
         logger.exception("Milvus 清理失败 kb_id=%s", kb_id)
         raise RecoverableIngestError(f"Milvus 清理失败: {e}") from e
-
-    # 2. 清 MinIO（先查出所有 object_key）
+    # 2. 硬删关系库数据：KB 已软删，这些行不再被任何查询使用
+    with session_scope() as session:
+        deleted_chunks = session.execute(
+            delete(DocumentChunk).where(DocumentChunk.kb_id == kb_id)
+        ).rowcount or 0
+        deleted_acls = session.execute(
+            delete(KBAcl).where(KBAcl.kb_id == kb_id)
+        ).rowcount or 0
+    logger.info(
+        "关系库清理 kb_id=%s chunks=%d acls=%d",
+        kb_id, deleted_chunks, deleted_acls,
+    )
+    # 3. 清 MinIO（先查出所有 object_key）
     with session_scope() as session:
         rows = session.execute(
             select(Document.object_key)
@@ -374,4 +396,6 @@ def cleanup_kb(self, kb_id_str: str) -> dict:
         "kb_id": kb_id_str,
         "deleted_vectors": deleted_vectors,
         "deleted_objects": deleted_objects,
+        "deleted_chunks": deleted_chunks,
+        "deleted_acls": deleted_acls,
     }

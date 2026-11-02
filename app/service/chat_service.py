@@ -196,6 +196,45 @@ async def append_assistant_message(
     return msg
 
 
+async def append_assistant_message_detached(
+    session_id: uuid.UUID,
+    content: str,
+    citations: list[dict],
+    model: str,
+    status_: MessageStatus = MessageStatus.COMPLETED,
+    error_msg: str | None = None,
+) -> None:
+    """用独立 session 落库，供请求生命周期之外的场景使用。
+
+    流式响应在客户端断开后，请求级 DB session 可能已关闭，
+    这里自己开 session，避免已生成的内容丢失。
+    """
+    from app.db.session import async_session_factory
+
+    async with async_session_factory() as db:
+        session = await db.get(ChatSession, session_id)
+        if not session:
+            return
+        db.add(
+            ChatMessage(
+                session_id=session_id,
+                role=MessageRole.ASSISTANT,
+                content=content,
+                citations=citations,
+                model=model,
+                status=status_,
+                error_msg=error_msg,
+                prompt_tokens=0,
+                completion_tokens=0,
+                total_tokens=0,
+            )
+        )
+        session.message_count += 1
+        session.last_message_at = datetime.now(timezone.utc)
+        db.add(session)
+        await db.commit()
+
+
 async def set_feedback(
     db: AsyncSession,
     message_id: uuid.UUID,

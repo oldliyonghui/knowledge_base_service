@@ -24,6 +24,14 @@ from app.schemas.document_chunk import ChunkCitation
 from app.service import chat_service, rag_service
 from app.service.retrieval import to_citations
 from app.service.rag_service import normalize_citations_in_answer
+import asyncio
+import logging
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+# 持有后台任务引用，避免被 GC 回收
+_BG_TASKS: set[asyncio.Task] = set()
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -142,14 +150,14 @@ async def ask(
 
     # 4. 调 LLM
     try:
-        result = rag_service.run_rag_once(messages, payload.temperature)
+        result = await rag_service.run_rag_once(messages, payload.temperature)
     except Exception as e:
         assistant_msg = await chat_service.append_assistant_message(
             db, session,
             content="",
             citations=[],
             prompt_tokens=0, completion_tokens=0, total_tokens=0,
-            model="",
+            model=settings.llm_model,
             status_=MessageStatus.FAILED,
             error_msg=str(e),
         )
@@ -213,43 +221,64 @@ async def ask_stream(
 
     async def event_stream() -> AsyncGenerator[bytes, None]:
         citations = to_citations(chunks)
+        citation_dicts = [c.model_dump(mode="json") for c in citations]
         yield _sse("citations", {
             "user_message_id": str(user_msg.id),
-            "items": [c.model_dump(mode="json") for c in citations],
+            "items": citation_dicts,
         })
 
-        full = []
+        full: list[str] = []
         try:
-            for delta in rag_service.run_rag_stream(messages, payload.temperature):
+            async for delta in rag_service.run_rag_stream(messages, payload.temperature):
                 full.append(delta)
                 yield _sse("delta", {"text": delta})
+        except asyncio.CancelledError:
+            # 客户端断开：请求级 session 即将失效，用独立 session 保存已生成的部分
+            cleaned = normalize_citations_in_answer("".join(full), len(citations))
+            try:
+                task = asyncio.create_task(
+                    chat_service.append_assistant_message_detached(
+                        session_id=session.id,
+                        content=cleaned,
+                        citations=citation_dicts,
+                        model=settings.llm_model,
+                        status_=MessageStatus.FAILED,
+                        error_msg="客户端在生成过程中断开，已保存部分回答",
+                    )
+                )
+                _BG_TASKS.add(task)
+                task.add_done_callback(_BG_TASKS.discard)
+            except RuntimeError:
+                logger.warning("事件循环已关闭，部分回答未落库 session_id=%s", session.id)
+            raise
         except Exception as e:
             yield _sse("error", {"message": str(e)})
-            # 失败也落库
-            raw = "".join(full)
-            cleaned = normalize_citations_in_answer(raw, len(citations))
+            cleaned = normalize_citations_in_answer("".join(full), len(citations))
             await chat_service.append_assistant_message(
                 db, session,
                 content=cleaned,
-                citations=[c.model_dump(mode="json") for c in citations],
+                citations=citation_dicts,
                 prompt_tokens=0, completion_tokens=0, total_tokens=0,
-                model="",
+                model=settings.llm_model,
                 status_=MessageStatus.FAILED,
                 error_msg=str(e),
             )
             return
-        raw = "".join(full)
-        cleaned = normalize_citations_in_answer(raw, len(citations))
+
+        cleaned = normalize_citations_in_answer("".join(full), len(citations))
         assistant_msg = await chat_service.append_assistant_message(
             db, session,
             content=cleaned,
-            citations=[c.model_dump(mode="json") for c in citations],
+            citations=citation_dicts,
             prompt_tokens=0, completion_tokens=0, total_tokens=0,
-            model="",
+            model=settings.llm_model,
         )
+        # done 里带回规范化后的完整回答，客户端据此覆盖逐字渲染的内容，
+        # 保证"屏幕上的答案"和"历史里的答案"完全一致
         yield _sse("done", {
             "assistant_message_id": str(assistant_msg.id),
-            "citations": [c.model_dump(mode="json") for c in citations],
+            "citations": citation_dicts,
+            "content": cleaned,
         })
     return StreamingResponse(
         event_stream(),

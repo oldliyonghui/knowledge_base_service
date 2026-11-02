@@ -10,6 +10,7 @@ def _get_embeddings() -> DashScopeEmbeddings:
     return DashScopeEmbeddings(
          # 必须，否则报错
         model=settings.embedding_model,
+        dashscope_api_key=settings.dashscope_api_key,
     )
 
 

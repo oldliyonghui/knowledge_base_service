@@ -2,10 +2,9 @@
 
 import logging
 import re
-from functools import lru_cache
 
 from app.core.config import settings
-from app.service.llm import chat_completion
+from app.service.llm import achat_completion
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +85,7 @@ def _deduplicate(items: list[str]) -> list[str]:
     return result
 
 
-def rewrite_query(question: str) -> list[str]:
+async def rewrite_query(question: str) -> list[str]:
     """把用户问题改写成多个检索 query。
 
     - 简单问题：返回 [原问题]
@@ -101,7 +100,7 @@ def rewrite_query(question: str) -> list[str]:
         return [question]
 
     try:
-        resp = chat_completion(
+        resp = await achat_completion(
             messages=[
                 {"role": "system", "content": "你只输出改写后的检索查询，一行一条，不加解释"},
                 {"role": "user", "content": REWRITE_PROMPT.format(question=question)},

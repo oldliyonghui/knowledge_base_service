@@ -13,7 +13,7 @@ sync_engine = create_engine(
     max_overflow=10,
     future=True,
     pool_recycle=1800,
-    echo=settings.debug,
+    echo=settings.db_echo,
 )
 
 SessionLocal = sessionmaker(

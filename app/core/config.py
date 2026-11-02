@@ -1,5 +1,10 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
+from pydantic import model_validator
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parents[2] #项目根目录
 
@@ -96,5 +101,27 @@ class Settings(BaseSettings):
     milvus_index_type: str = "AUTOINDEX"
 
     cors_origins: list[str] = ["*"]
+
+    @model_validator(mode="after")
+    def _check_dashscope_key(self) -> "Settings":
+        """key 缺失时：开发环境告警，生产环境直接启动失败。"""
+        if not self.dashscope_api_key.strip():
+            msg = (
+                "DASHSCOPE_API_KEY 未配置：LLM / embedding / rerank 三个能力都会失败。"
+                "请在 .env 中填写后重启服务。"
+            )
+            if self.debug:
+                logger.warning(msg)
+            else:
+                raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _check_jwt_secret(self) -> "Settings":
+        if not self.debug and self.jwt_secret_key == "change-me-in-production":
+            raise ValueError(
+                "JWT_SECRET_KEY 仍是默认值，生产环境必须替换为强随机字符串"
+            )
+        return self
 
 settings = Settings()

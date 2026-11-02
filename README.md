@@ -15,6 +15,8 @@
 - [API 文档](#api-文档)
 - [项目结构](#项目结构)
 - [系统架构](#系统架构)
+- [开发与测试](#开发与测试)
+- [已知限制](#已知限制)
 
 ## 功能特性
 
@@ -33,11 +35,12 @@
 - 处理状态实时查询
 
 ### 检索与问答
-- Milvus 向量检索（cosine 相似度）
-- 通义 `qwen3.7-max` 精排
+- 向量检索（Milvus，COSINE）+ BM25 关键词检索，RRF 融合
+- 查询改写：把"有哪些/包括什么"这类聚合问题拆成多条子查询并行召回
+- 通义 `qwen3.7-text-rerank` 精排，失败时自动降级为融合排序，不阻断问答
 - 相对阈值 + 绝对阈值双重过滤
-- 带引用回答（chunk_id、文档名、页码、分数）
-- 流式输出（SSE）
+- 带引用回答（chunk_id、文档名、页码、rerank 分数）
+- 流式输出（SSE），客户端断开时保存已生成的部分回答
 - 多轮对话（历史上下文）
 - 会话管理（创建/列表/删除/历史）
 
@@ -45,7 +48,8 @@
 - Celery 异步任务（解析/删除/清理）
 - 幂等任务（重跑安全）
 - 可重试 / 不可重试异常分级
-- 结构化日志
+- 统一格式的分级日志（异常带堆栈）
+- 纯函数单元测试（pytest）
 - Docker Compose 一键起依赖
 
 ## 技术栈
@@ -56,12 +60,14 @@
 | ORM | SQLAlchemy 2.0 (async) |
 | 数据库 | MySQL 8.0 |
 | 缓存/队列 | Redis 7 |
-| 向量库 | Milvus 2.4 |
-| 对象存储 | MinIO (pgsty/silo) |
-| 异步任务 | Celery 5.4 |
-| LLM | 通义千问 qwen-plus |
-| Embedding | 通义 text-embedding-v3  |
-| LangChain | langchain-openai / langchain-community |
+| 向量库 | Milvus 2.4.10（compose 固定）+ pymilvus 3.x |
+| 对象存储 | MinIO（compose 使用 pgsty/silo 镜像） |
+| 异步任务 | Celery 5.4+ |
+| LLM | 通义 qwen3.7-max（推理模型，首字延迟较高） |
+| Embedding | 通义 text-embedding-v4（1024 维） |
+| 精排 | 通义 qwen3.7-text-rerank |
+| LLM 接入 | langchain-community（ChatTongyi / DashScopeEmbeddings）+ langchain-core |
+| BM25 | rank-bm25 + jieba（进程内内存索引） |
 | 认证 | PyJWT + argon2 |
 
 
@@ -84,11 +90,11 @@ cd ragService
 
 # 2. 起依赖服务
 docker compose up -d
-docker compose ps   # 等 Milvus healthy
+docker compose ps   # 等 Milvus 启动完成（首次约 30~60 秒，未配置 healthcheck）
 
-# 3. 建 Python 环境
-python3.12 -m venv .venv
-source .venv/bin/activate
+# 3. 建 Python 环境（与 start_all.sh 一致，用 conda）
+conda env create -f environment.yml   # 或：conda create -n kbs_service python=3.12 -y
+conda activate kbs_service
 pip install -r requirements.txt
 
 # 4. 配环境变量
@@ -159,20 +165,27 @@ CELERY_BROKER_URL=redis://127.0.0.1:6379/0
 CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/1
 
 # 通义千问
-DASHSCOPE_API_KEY=sk-xxx(示例)
-EMBEDDING_MODEL=text-embedding-v3(示例)
-EMBEDDING_DIM=1024                   # 
+DASHSCOPE_API_KEY=sk-xxx
+EMBEDDING_MODEL=text-embedding-v4
+EMBEDDING_DIM=1024
 EMBEDDING_BATCH_SIZE=16              # 本地调试用小值
 
-LLM_MODEL=qwen-plus(示例)
+LLM_MODEL=qwen3.7-max
 LLM_MAX_TOKENS=2048
 LLM_TEMPERATURE=0.2
 
+# 混合检索（关闭时只用向量检索）
+RAG_HYBRID_ENABLED=true
+RAG_BM25_TOP_K=30
+RAG_RRF_K=60
+RAG_QUERY_REWRITE_ENABLED=true       # 开启后每次提问多一次 LLM 调用
+
 # RAG 检索
 RAG_COARSE_TOP_K=30                  # 粗排召回数
-RAG_TOP_K=5                          # 最终返回数
+RAG_TOP_K=5
 RAG_RERANK_ENABLED=true
-RAG_RERANK_MIN_SCORE=0.5             # rerank 阈值
+RAG_RERANK_MODEL=qwen3.7-text-rerank
+RAG_RERANK_MIN_SCORE=0.5             # rerank 后的最低分
 
 # Milvus
 MILVUS_URI=http://127.0.0.1:19530
@@ -293,60 +306,75 @@ curl -N -X POST http://127.0.0.1:8000/api/v1/chat/sessions/$SESSION_ID/messages/
 ```
 ragService/
 ├── app/
-│   ├── main.py                    # FastAPI 入口
+│   ├── main.py                    # FastAPI 入口 + BM25 自动对账
 │   ├── bootstrap.py               # 初始化 admin
 │   ├── api/                       # 路由层
 │   │   ├── auth.py
 │   │   ├── users.py
+│   │   ├── roles.py
 │   │   ├── kbs.py
 │   │   ├── documents.py
 │   │   └── chat.py
 │   ├── core/
-│   │   ├── config.py              # 配置定义
+│   │   ├── config.py              # 配置定义 + 启动校验
 │   │   ├── security.py            # 密码哈希 + JWT
 │   │   └── deps.py                # 依赖注入
 │   ├── db/
 │   │   └── session.py             # 异步 session
 │   ├── models/                    # SQLAlchemy 模型
 │   │   ├── base.py
-│   │   ├── types.py               # GUID / EnumStr
+│   │   ├── types.py               # GUID / UtcDateTime / EnumStr
 │   │   ├── user.py
+│   │   ├── refresh_token.py
 │   │   ├── knowledge_base.py
 │   │   ├── kb_acl.py
 │   │   ├── document.py
 │   │   ├── document_chunk.py
 │   │   └── chat.py
 │   ├── schemas/                   # Pydantic 模型
-│   ├── services/                  # 业务逻辑
-│   │   ├── auth_service.py
-│   │   ├── permission.py          # 权限校验
-│   │   ├── kb_service.py
-│   │   ├── document_service.py
-│   │   ├── chat_service.py
-│   │   ├── rag_service.py         # RAG 编排
-│   │   ├── retrieval.py           # 检索
-│   │   ├── reranker.py            # 精排
-│   │   ├── llm.py                 # LLM 客户端
-│   │   └── storage.py             # MinIO 封装
-│   └── worker/                    # Celery Worker
-│       ├── celery_app.py
-│       ├── db.py
-│       ├── exceptions.py
-│       ├── tasks.py
-│       └── pipeline/
-│           ├── pdf_parser.py      # PDF 解析
-│           ├── chunker.py         # 分块
-│           ├── embedder.py        # embedding
-│           └── milvus_store.py    # Milvus 读写
+│   └── service/                   # 业务逻辑
+│       ├── auth_service.py
+│       ├── user_service.py
+│       ├── permission.py          # 权限校验
+│       ├── kb_service.py
+│       ├── kb_acl_service.py
+│       ├── document_service.py
+│       ├── chat_service.py
+│       ├── rag_service.py         # RAG 编排 / prompt 组装
+│       ├── retrieval.py           # 多路召回 + RRF + rerank
+│       ├── bm25_index.py          # 内存 BM25 索引
+│       ├── fusion.py              # RRF 融合
+│       ├── query_rewriter.py      # 查询改写
+│       ├── reranker.py            # 精排
+│       ├── llm.py                 # LLM 客户端（同步/异步）
+│       ├── storage.py             # MinIO 封装
+│       └── task_queue.py          # Celery 投递
+├── worker/
+│   ├── celery_app.py
+│   ├── db.py
+│   ├── exceptions.py
+│   ├── tasks.py
+│   └── pipeline/
+│       ├── pdf_parser.py
+│       ├── chunker.py
+│       ├── embedder.py
+│       ├── milvus_store.py
+│       └── status.py
 ├── scripts/
 │   ├── create_all.py              # 建表
-│   ├── init_milvus.py             # 建 Collection
+│   ├── init_milvus.py             # 建 Collection + 索引
 │   ├── eval_retrieval.py          # 检索评估
-│   └── eval_cases.py              # 评估用例
+│   ├── eval_cases.py              # 评估用例
+│   └── gen_eval_cases.py          # 生成评估用例
+├── tests/
+│   └── test_rag_core.py           # 纯函数单元测试
 ├── web/
 │   └── app.py                     # Streamlit 调试台
-├── docker-compose.yml             # 依赖服务
+├── docker-compose.yml
 ├── requirements.txt
+├── requirements-dev.txt
+├── pytest.ini
+├── environment.yml
 ├── .env.example
 └── README.md
 ```
@@ -393,6 +421,34 @@ ragService/
    └────────────────────┴────────────────────┴────────────────────┘
 
 ```
+
+### 检索链路
+
+用户问题 → 可选：LLM 改写为多条子查询 → 每条子查询：embedding → Milvus 向量检索（tenant_id + kb_id 过滤） → 每条子查询：BM25 关键词检索（进程内索引，30 秒对账一次） → RRF 融合多路结果 → rerank 精排（失败则降级为融合排序） → 回表校验文档未删除 → 组装带编号的上下文 → LLM 生成 → SSE 流式输出
+
+
+BM25 索引维护在 API 进程内：Celery worker 写完数据库后不会通知 API，
+启动时会先全量构建一次，之后每 30 秒比对 `(chunk 总数, max(created_at))`，
+有变化才重建。新增文档最多延迟一个周期才能被关键词召回。
+
+## 开发与测试
+
+单元测试只覆盖纯函数，不连数据库、不调外部服务：
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+## 已知限制
+
+- 流式回答的 token 用量在库里记为 0：ChatTongyi 的流式接口不回传 usage，只有非流式才有真实值。
+- BM25 是进程内内存索引，全量重建；新增文档最多延迟 30 秒可见，适合 10 万 chunk 以内的单进程部署。
+- 扫描版 PDF 不做 OCR，解析不出文字会直接标记失败。
+- 上传文件整体读入内存（上限 100MB），大文件并发上传占用内存较高。
+- 没有数据库迁移工具，改表结构需手工执行 DDL。
+- rerank 失败会降级为融合排序，此时引用的 `rerank_score` 为 null。
+- `RAG_TOP_K`、`RAG_MIN_SCORE`、`RAG_HISTORY_TURNS` 等配置项目前未被代码使用。
 
 作者：enslivan
 邮箱：18335103323@163.com

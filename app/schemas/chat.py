@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.chat import MessageRole, MessageStatus
 from app.schemas.document_chunk import ChunkCitation
+from app.core.config import settings
 
 
 # ---------- 会话 ----------
@@ -52,7 +53,7 @@ class AskRequest(BaseModel):
     )
     top_k: int = Field(default=8, ge=1, le=30)
     stream: bool = False
-    temperature: float = Field(default=0.2, ge=0, le=2)
+    temperature: float = Field(default=settings.llm_temperature, ge=0, le=2)
 
 
 class ChatMessageResponse(BaseModel):

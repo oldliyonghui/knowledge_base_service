@@ -76,20 +76,3 @@ def has_permission(
     if current is None:
         return False
     return PERMISSION_LEVEL[current] >= PERMISSION_LEVEL[required]
-
-def list_acl_dept_role_ids_sync(
-    session: Session, kb_id: uuid.UUID
-) -> tuple[list[str], list[str]]:
-    stmt = select(KBAcl).where(KBAcl.kb_id == kb_id)
-    acls = session.execute(stmt).scalars().all()
-    dept_ids = [
-        str(a.subject_id)
-        for a in acls
-        if a.subject_type == AclSubjectType.DEPT
-    ]
-    role_ids = [
-        str(a.subject_id)
-        for a in acls
-        if a.subject_type == AclSubjectType.ROLE
-    ]
-    return dept_ids, role_ids

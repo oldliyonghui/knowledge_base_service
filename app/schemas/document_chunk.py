@@ -65,7 +65,17 @@ class ChunkCitation(BaseModel):
     page_end: Optional[int] = None
     section_title: Optional[str] = None
     content: Optional[str] = None
-    score: Optional[float] = Field(default=None, ge=0, le=1)
+    score: Optional[float] = Field(
+        default=None,
+        description=(
+            "最终相关度分：开启 rerank 时等于 rerank_score（0~1）；"
+            "未开启 rerank 时为原始召回分（余弦 -1~1 或 BM25 原始分），量纲不同，不要直接跨请求比较"
+        ),
+    )
+    rerank_score: Optional[float] = Field(
+        default=None,
+        description="rerank 模型给出的相关度分（0~1），未启用 rerank 或 rerank 失败时为 null",
+    )
 
 
 # ---------- 列表 ----------
